@@ -1,9 +1,13 @@
 require "builder"
-require "crack/xml"
 require "gyoku"
+require "nori"
 
 require "savon/soap"
-require "savon/core_ext/hash"
+
+Nori.configure do |config|
+  config.strip_namespaces = true
+  config.convert_tags_to { |tag| tag.snakecase.to_sym }
+end
 
 module Savon
   module SOAP
@@ -19,31 +23,6 @@ module Savon
         "xmlns:xsd" => "http://www.w3.org/2001/XMLSchema",
         "xmlns:xsi" => "http://www.w3.org/2001/XMLSchema-instance"
       }
-
-      # Converts the given SOAP response +value+ (XML or Hash) into a normalized Hash.
-      def self.to_hash(value)
-        value = parse value unless value.kind_of? Hash
-        value.find_soap_body
-      end
-
-      # Converts a given SOAP response +xml+ to a Hash.
-      def self.parse(xml)
-        Crack::XML.parse(xml)
-      end
-
-      # Expects a SOAP response XML or Hash, traverses it for a given +path+ of Hash keys
-      # and returns the value as an Array. Defaults to return an empty Array in case the
-      # path does not exist or returns nil.
-      def self.to_array(object, *path)
-        hash = object.kind_of?(Hash) ? object : to_hash(object)
-
-        result = path.inject hash do |memo, key|
-          return [] unless memo[key]
-          memo[key]
-        end
-
-        result.kind_of?(Array) ? result.compact : [result].compact
-      end
 
       # Accepts an +endpoint+, an +input+ tag and a SOAP +body+.
       def initialize(endpoint = nil, input = nil, body = nil)
@@ -74,7 +53,7 @@ module Savon
 
       # Returns the SOAP +header+. Defaults to an empty Hash.
       def header
-        @header ||= {}
+        @header ||= Savon.soap_header.nil? ? {} : Savon.soap_header
       end
 
       # Sets the SOAP envelope namespace.
@@ -96,6 +75,33 @@ module Savon
         end
       end
 
+      def namespace_by_uri(uri)
+        namespaces.each do |candidate_identifier, candidate_uri|
+          return candidate_identifier.gsub(/^xmlns:/, '') if candidate_uri == uri
+        end
+        nil
+      end
+
+      def used_namespaces
+        @used_namespaces ||= {}
+      end
+
+      def use_namespace(path, uri)
+        @internal_namespace_count ||= 0
+
+        unless identifier = namespace_by_uri(uri)
+          identifier = "ins#{@internal_namespace_count}"
+          namespaces["xmlns:#{identifier}"] = uri
+          @internal_namespace_count += 1
+        end
+
+        used_namespaces[path] = identifier
+      end
+
+      def types
+        @types ||= {}
+      end
+
       # Sets the default namespace identifier.
       attr_writer :namespace_identifier
 
@@ -104,14 +110,8 @@ module Savon
         @namespace_identifier ||= :wsdl
       end
 
-      # Returns whether all local elements should be namespaced. Might be set to :qualified,
-      # but defaults to :unqualified.
-      def element_form_default
-        @element_form_default ||= :unqualified
-      end
-
-      # Sets whether all local elements should be namespaced.
-      attr_writer :element_form_default
+      # Accessor for whether all local elements should be namespaced.
+      attr_accessor :element_form_default
 
       # Accessor for the default namespace URI.
       attr_accessor :namespace
@@ -119,13 +119,29 @@ module Savon
       # Accessor for the <tt>Savon::WSSE</tt> object.
       attr_accessor :wsse
 
-      # Accessor for the SOAP +body+. Expected to be a Hash that can be translated to XML via Gyoku.xml
-      # or any other Object responding to to_s.
-      attr_accessor :body
+      # Returns the SOAP request encoding. Defaults to "UTF-8".
+      def encoding
+        @encoding ||= "UTF-8"
+      end
 
-      # Accepts a +block+ and yields a <tt>Builder::XmlMarkup</tt> object to let you create custom XML.
-      def xml
-        @xml = yield builder if block_given?
+      # Sets the SOAP request encoding.
+      attr_writer :encoding
+
+      # Accepts a +block+ and yields a <tt>Builder::XmlMarkup</tt> object to let you create
+      # custom body XML.
+      def body
+        @body = yield builder(nil) if block_given?
+        @body
+      end
+
+      # Sets the SOAP +body+. Expected to be a Hash that can be translated to XML via `Gyoku.xml`
+      # or any other Object responding to to_s.
+      attr_writer :body
+
+      # Accepts a +block+ and yields a <tt>Builder::XmlMarkup</tt> object to let you create
+      # a completely custom XML.
+      def xml(directive_tag = :xml, attrs = {})
+        @xml = yield builder(directive_tag, attrs) if block_given?
       end
 
       # Accepts an XML String and lets you specify a completely custom request body.
@@ -135,16 +151,21 @@ module Savon
       def to_xml
         @xml ||= tag(builder, :Envelope, complete_namespaces) do |xml|
           tag(xml, :Header) { xml << header_for_xml } unless header_for_xml.empty?
-          input.nil? ? tag(xml, :Body) : tag(xml, :Body) { xml.tag!(*input) { xml << body_to_xml } }
+
+          if input.nil?
+            tag(xml, :Body)
+          else
+            tag(xml, :Body) { xml.tag!(*add_namespace_to_input) { xml << body_to_xml } }
+          end
         end
       end
 
     private
 
       # Returns a new <tt>Builder::XmlMarkup</tt> object.
-      def builder
+      def builder(directive_tag = :xml, attrs = { :encoding => encoding })
         builder = Builder::XmlMarkup.new
-        builder.instruct!
+        builder.instruct!(directive_tag, attrs) if directive_tag
         builder
       end
 
@@ -175,7 +196,32 @@ module Savon
       # Returns the SOAP body as an XML String.
       def body_to_xml
         return body.to_s unless body.kind_of? Hash
-        Gyoku.xml body, :element_form_default => element_form_default, :namespace => namespace_identifier
+        Gyoku.xml add_namespaces_to_body(body), :element_form_default => element_form_default, :namespace => namespace_identifier
+      end
+
+      def add_namespaces_to_body(hash, path = [input[1].to_s])
+        return unless hash
+        return hash if hash.kind_of?(Array)
+        return hash.to_s unless hash.kind_of? Hash
+
+        hash.inject({}) do |newhash, (key, value)|
+          camelcased_key = Gyoku::XMLKey.create(key)
+          newpath = path + [camelcased_key]
+
+          if used_namespaces[newpath]
+            newhash.merge(
+              "#{used_namespaces[newpath]}:#{camelcased_key}" =>
+                add_namespaces_to_body(value, types[newpath] ? [types[newpath]] : newpath)
+            )
+          else
+            newhash.merge(key => value)
+          end
+        end
+      end
+
+      def add_namespace_to_input
+        return input.compact unless used_namespaces[[input[1].to_s]]
+        [used_namespaces[[input[1].to_s]], input[1], input[2]]
       end
 
 
@@ -227,4 +273,3 @@ module Savon
     end
   end
 end
-

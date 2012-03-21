@@ -19,6 +19,39 @@ describe Savon do
         Savon.configure { |config| config.log = false }
         Savon.log?.should be_false
       end
+
+      context "when instructed to filter" do
+        before do
+          Savon.log = true
+        end
+
+        context "and no log filter set" do
+          it "should not filter the message" do
+            Savon.logger.expects(Savon.log_level).with(Fixture.response(:authentication))
+            Savon.log(Fixture.response(:authentication), :filter)
+          end
+        end
+
+        context "and multiple log filters" do
+          before do
+            Savon.configure { |config| config.log_filter = ["logType", "logTime"] }
+          end
+
+          it "should filter element values" do
+            filtered_values = /Notes Log|2010-09-21T18:22:01|2010-09-21T18:22:07/
+
+            Savon.logger.expects(Savon.log_level).with do |msg|
+              msg !~ filtered_values &&
+              msg.include?('<ns10:logTime>***FILTERED***</ns10:logTime>') &&
+              msg.include?('<ns10:logType>***FILTERED***</ns10:logType>') &&
+              msg.include?('<ns11:logTime>***FILTERED***</ns11:logTime>') &&
+              msg.include?('<ns11:logType>***FILTERED***</ns11:logType>')
+            end
+
+            Savon.log(Fixture.response(:list), :filter)
+          end
+        end
+      end
     end
 
     describe "logger" do
@@ -67,17 +100,6 @@ describe Savon do
 
       it "should raise an ArgumentError in case of an invalid version" do
         lambda { Savon.soap_version = 3 }.should raise_error(ArgumentError)
-      end
-    end
-
-    describe "strip_namespaces" do
-      it "should default to true" do
-        Savon.strip_namespaces?.should == true
-      end
-
-      it "should not strip namespaces when set to false" do
-        Savon.strip_namespaces = false
-        Savon.strip_namespaces?.should == false
       end
     end
   end

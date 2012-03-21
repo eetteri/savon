@@ -1,72 +1,14 @@
 require "spec_helper"
 
 describe Savon::SOAP::XML do
-  let(:xml) { Savon::SOAP::XML.new Endpoint.soap, :authenticate, :id => 1 }
-
-  describe ".to_hash" do
-    it "should return a given SOAP response body as a Hash" do
-      hash = Savon::SOAP::XML.to_hash Fixture.response(:authentication)
-      hash[:authenticate_response][:return].should == {
-        :success => true,
-        :authentication_value => {
-          :token_hash => "AAAJxA;cIedoT;mY10ExZwG6JuKgp2OYKxow==",
-          :token => "a68d1d6379b62ff339a0e0c69ed4d9cf",
-          :client => "radclient"
-        }
-      }
-    end
-
-    it "should return a Hash for a SOAP multiRef response" do
-      hash = Savon::SOAP::XML.to_hash Fixture.response(:multi_ref)
-
-      hash[:list_response].should be_a(Hash)
-      hash[:multi_ref].should be_an(Array)
-    end
-
-    it "should add existing namespaced elements as an array" do
-      hash = Savon::SOAP::XML.to_hash Fixture.response(:list)
-
-      hash[:multi_namespaced_entry_response][:history].should be_a(Hash)
-      hash[:multi_namespaced_entry_response][:history][:case].should be_an(Array)
-    end
-  end
-
-  describe ".parse" do
-    it "should convert the given XML into a Hash" do
-      hash = Savon::SOAP::XML.parse Fixture.response(:list)
-      hash["soapenv:Envelope"]["soapenv:Body"].should be_a(Hash)
-    end
-  end
-
-  describe ".to_array" do
-    let(:response_hash) { Fixture.response_hash :authentication }
-
-    context "when the given path exists" do
-      it "should return an Array containing the path value" do
-        Savon::SOAP::XML.to_array(response_hash, :authenticate_response, :return).should ==
-          [response_hash[:authenticate_response][:return]]
-      end
-    end
-
-    context "when the given path returns nil" do
-      it "should return an empty Array" do
-        Savon::SOAP::XML.to_array(response_hash, :authenticate_response, :undefined).should == []
-      end
-    end
-
-    context "when the given path does not exist at all" do
-      it "should return an empty Array" do
-        Savon::SOAP::XML.to_array(response_hash, :authenticate_response, :some, :wrong, :path).should == []
-      end
-    end
-  end
+  let(:xml) { Savon::SOAP::XML.new Endpoint.soap, [nil, :authenticate, {}], :id => 1 }
 
   describe ".new" do
     it "should accept an endpoint, an input tag and a SOAP body" do
-      xml = Savon::SOAP::XML.new Endpoint.soap, :authentication, :id => 1
+      xml = Savon::SOAP::XML.new Endpoint.soap, [nil, :authentication, {}], :id => 1
 
       xml.endpoint.should == Endpoint.soap
-      xml.input.should == :authentication
+      xml.input.should == [nil, :authentication, {}]
       xml.body.should == { :id => 1 }
     end
   end
@@ -116,6 +58,11 @@ describe Savon::SOAP::XML do
       xml.header = { "MySecret" => "abc" }
       xml.header.should == { "MySecret" => "abc" }
     end
+
+    it "should use the global soap_header if set" do
+      Savon.stubs(:soap_header).returns({ "MySecret" => "abc" })
+      xml.header.should == { "MySecret" => "abc" }
+    end
   end
 
   describe "#env_namespace" do
@@ -151,9 +98,9 @@ describe Savon::SOAP::XML do
   end
 
   describe "#wsse" do
-    it "should set the Savon::WSSE object" do
-      xml.wsse = Savon::WSSE.new
-      xml.wsse.should be_a(Savon::WSSE)
+    it "should set the Akami::WSSE object" do
+      xml.wsse = Akami.wsse
+      xml.wsse.should be_a(Akami::WSSE)
     end
   end
 
@@ -163,9 +110,23 @@ describe Savon::SOAP::XML do
       xml.to_xml.should include("<id>1</id>")
     end
 
-    it "should also accepts an XML String" do
+    it "should accepts an XML String" do
       xml.body = "<id>1</id>"
       xml.to_xml.should include("<id>1</id>")
+    end
+
+    it "should accept a block" do
+      xml.body do |body|
+        body.user { body.id 1 }
+      end
+
+      xml.to_xml.should include("<authenticate><user><id>1</id></user></authenticate>")
+    end
+  end
+
+  describe "#encoding" do
+    it "defaults to UTF-8" do
+      xml.encoding.should == "UTF-8"
     end
   end
 
@@ -178,6 +139,19 @@ describe Savon::SOAP::XML do
     it "yields a Builder::XmlMarkup object to a given block" do
       xml.xml { |xml| xml.using("Builder") }
       xml.to_xml.should == '<?xml version="1.0" encoding="UTF-8"?><using>Builder</using>'
+    end
+
+    it "accepts options to pass to the Builder::XmlMarkup instruct!" do
+      xml.xml :xml, :aaa => :bbb do |xml|
+        xml.using("Builder")
+      end
+
+      xml.to_xml.should == '<?xml version="1.0" encoding="UTF-8" aaa="bbb"?><using>Builder</using>'
+    end
+
+    it "allows to change the encoding" do
+      xml.xml(:xml, :encoding => "US-ASCII") { |xml| xml.using("Builder") }
+      xml.to_xml.should == '<?xml version="1.0" encoding="US-ASCII"?><using>Builder</using>'
     end
   end
 
@@ -219,6 +193,17 @@ describe Savon::SOAP::XML do
 
       it "should not contain a SOAP header" do
         xml.to_xml.should_not include('<env:Header')
+      end
+    end
+
+    context "with a custom encoding" do
+      after do
+        xml.encoding = nil
+      end
+
+      it "should change the default encoding" do
+        xml.encoding = "US-ASCII"
+        xml.to_xml.should match(/^<\?xml version="1.0" encoding="US-ASCII"\?>/)
       end
     end
 
@@ -271,7 +256,7 @@ describe Savon::SOAP::XML do
 
     context "with :element_form_default set to :qualified and a :namespace" do
       let :xml do
-        Savon::SOAP::XML.new Endpoint.soap, :authenticate, :user => { :id => 1, ":noNamespace" => true }
+        Savon::SOAP::XML.new Endpoint.soap, [nil, :authenticate, {}], :user => { :id => 1, ":noNamespace" => true }
       end
 
       it "should namespace the default elements" do
@@ -288,7 +273,7 @@ describe Savon::SOAP::XML do
 
     context "with WSSE authentication" do
       it "should containg a SOAP header with WSSE authentication details" do
-        xml.wsse = Savon::WSSE.new
+        xml.wsse = Akami.wsse
         xml.wsse.credentials "username", "password"
 
         xml.to_xml.should include("<env:Header><wsse:Security")
@@ -299,28 +284,28 @@ describe Savon::SOAP::XML do
 
     context "with a simple input tag (Symbol)" do
       it "should just add the input tag" do
-        xml.input = :simple
+        xml.input = [nil, :simple, {}]
         xml.to_xml.should include('<simple><id>1</id></simple>')
       end
     end
 
     context "with a simple input tag (Array)" do
       it "should just add the input tag" do
-        xml.input = :simple
+        xml.input = [nil, :simple, {}]
         xml.to_xml.should include('<simple><id>1</id></simple>')
       end
     end
 
     context "with an input tag and a namespace Hash (Array)" do
       it "should contain the input tag with namespaces" do
-        xml.input = [:getUser, { "active" => true }]
+        xml.input = [nil, :getUser, { "active" => true }]
         xml.to_xml.should include('<getUser active="true"><id>1</id></getUser>')
       end
     end
 
     context "with a prefixed input tag (Array)" do
       it "should contain a prefixed input tag" do
-        xml.input = [:wsdl, :getUser]
+        xml.input = [:wsdl, :getUser, {}]
         xml.to_xml.should include('<wsdl:getUser><id>1</id></wsdl:getUser>')
       end
     end

@@ -1,6 +1,6 @@
 require "savon/soap/xml"
-require "savon/soap/part"
 require "savon/soap/fault"
+require "savon/soap/invalid_response_error"
 require "savon/http/error"
 
 module Savon
@@ -14,13 +14,10 @@ module Savon
       # Expects an <tt>HTTPI::Response</tt> and handles errors.
       def initialize(response)
         self.http = response
-        @parts = []
-        decode_multipart
         raise_errors if Savon.raise_errors?
       end
 
       attr_accessor :http
-      attr_accessor :parts
 
       # Returns whether the request was successful.
       def success?
@@ -47,59 +44,60 @@ module Savon
         @http_error ||= HTTP::Error.new http
       end
 
-      # Returns the SOAP response header as a Hash.
-      def header
-        @header_hash ||= basic_hash.find_soap_header
+      # Shortcut accessor for the SOAP response body Hash.
+      def [](key)
+        body[key]
       end
 
-      # Shortcut for the +to_hash+ method.
-      def [](key)
-        to_hash[key]
+      # Returns the SOAP response header as a Hash.
+      def header
+        if !hash.has_key? :envelope
+          raise Savon::SOAP::InvalidResponseError, "Unable to parse response body '#{to_xml}'"
+        end
+        hash[:envelope][:header]
       end
 
       # Returns the SOAP response body as a Hash.
-      def to_hash
-        @hash ||= Savon::SOAP::XML.to_hash basic_hash
+      def body
+        if !hash.has_key? :envelope
+          raise Savon::SOAP::InvalidResponseError, "Unable to parse response body '#{to_xml}'"
+        end
+        hash[:envelope][:body]
       end
 
-      # Returns the SOAP response body as an Array.
+      alias to_hash body
+
+      # Traverses the SOAP response body Hash for a given +path+ of Hash keys and returns
+      # the value as an Array. Defaults to return an empty Array in case the path does not
+      # exist or returns nil.
       def to_array(*path)
-        Savon::SOAP::XML.to_array to_hash, *path
-      end
+        result = path.inject body do |memo, key|
+          return [] unless memo[key]
+          memo[key]
+        end
 
-      # Returns true if this is a multipart response
-      def multipart?
-        http.headers["Content-Type"] =~ /^multipart/
-      end
-
-      # Returns the boundary declaration of the multipart response
-      def boundary
-        return nil unless multipart?
-        @boundary ||= Mail::Field.new("Content-Type", http.headers["Content-Type"]).parameters['boundary']
-      end
-
-      # Returns the array of attachments if it was a multipart response
-      def attachments
-        parts.attachments
+        result.kind_of?(Array) ? result.compact : [result].compact
       end
 
       # Returns the complete SOAP response XML without normalization.
-      def basic_hash
-        @basic_hash ||= Savon::SOAP::XML.parse to_xml
-      end
-
-      # Returns the raw response body
-      def raw
-        http.body
+      def hash
+        @hash ||= Nori.parse(to_xml)
       end
 
       # Returns the SOAP response XML.
       def to_xml
-        if multipart?
-          parts.first.body.encoded          # we just assume the first part is the XML
-        else
-          http.body
-        end
+        http.body
+      end
+
+      # Returns a <tt>Nokogiri::XML::Document</tt> for the SOAP response XML.
+      def doc
+        @doc ||= Nokogiri::XML(to_xml)
+      end
+
+      # Returns an Array of <tt>Nokogiri::XML::Node</tt> objects retrieved with the given +path+.
+      # Automatically adds all of the document's namespaces unless a +namespaces+ hash is provided.
+      def xpath(path, namespaces = nil)
+        doc.xpath(path, namespaces || xml_namespaces)
       end
 
     private
@@ -109,23 +107,9 @@ module Savon
         raise http_error if http_error?
       end
 
-
-
-      # Decoding multipart responses
-      #
-      # response.to_xml will point to the first part, hopefully the SOAP part of the multipart
-      # All attachments are available in the response.parts array. Each is a Part from the mail gem. See the docs there for details but:
-      # response.parts[0].body is the contents
-      # response.parts[0].headers are the mime headers
-      # And you can do nesting:
-      # response.parts[0].parts[2].body
-      def decode_multipart
-        return unless multipart?
-        part_of_parts = Savon::SOAP::Part.new(:headers => http.headers, :body => http.body)
-        part_of_parts.body.split!(boundary)
-        @parts = part_of_parts.parts
+      def xml_namespaces
+        @xml_namespaces ||= doc.collect_namespaces
       end
-
 
     end
   end

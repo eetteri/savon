@@ -1,35 +1,42 @@
-Savon
+Savon [![Build Status](https://secure.travis-ci.org/rubiii/savon.png)](http://travis-ci.org/rubiii/savon)
 =====
 
 Heavy metal Ruby SOAP client
 
-[Official documentation](http://savonrb.com) | [RDoc](http://rubydoc.info/gems/savon) | [Google Group](http://groups.google.com/group/savon-soap)
+[Documentation](http://savonrb.com) | [RDoc](http://rubydoc.info/gems/savon) |
+[Mailing list](https://groups.google.com/forum/#!forum/savonrb) | [Twitter](http://twitter.com/savonrb)
 
 Installation
 ------------
 
 Savon is available through [Rubygems](http://rubygems.org/gems/savon) and can be installed via:
 
-    $ gem install savon
+```
+$ gem install savon
+```
 
-Basic workflow
---------------
+Introduction
+------------
 
-    # Setting up a Savon::Client representing a SOAP service.
-    client = Savon::Client.new "http://service.example.com?wsdl"
+``` ruby
+require "savon"
 
-    client.wsdl.soap_actions
-    # => [:create_user, :get_user, :get_all_users]
+# create a client for your SOAP service
+client = Savon::Client.new("http://service.example.com?wsdl")
 
-    # Executing a SOAP request to call a "getUser" action.
-    response = client.request :get_user do
-      soap.body = { :id => 1 }
-    end
+client.wsdl.soap_actions
+# => [:create_user, :get_user, :get_all_users]
 
-    response.to_hash
-    # => { :get_user_response => { :first_name => "The", :last_name => "Hoff" } }
+# execute a SOAP request to call the "getUser" action
+response = client.request(:get_user) do
+  soap.body = { :id => 1 }
+end
 
-Excited to learn more?
-----------------------
+response.body
+# => { :get_user_response => { :first_name => "The", :last_name => "Hoff" } }
+```
 
-Then you might want to [go ahead and read the official documentation](http://savonrb.com).
+Documentation
+-------------
+
+Continue reading at [savonrb.com](http://savonrb.com)

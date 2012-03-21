@@ -12,17 +12,25 @@ module Savon
       # Content-Types by SOAP version.
       ContentType = { 1 => "text/xml;charset=UTF-8", 2 => "application/soap+xml;charset=UTF-8" }
 
-      # Expects an <tt>HTTPI::Request</tt> and a <tt>Savon::SOAP::XML</tt> object.
-      def initialize(request, soap)
-        self.request = setup(request, soap)
+      # Expects an <tt>HTTPI::Request</tt> and a <tt>Savon::SOAP::XML</tt> object
+      # to execute a SOAP request and returns the response.
+      def self.execute(http, soap)
+        new(http, soap).response
       end
 
-      # Accessor for the <tt>HTTPI::Request</tt>.
-      attr_accessor :request
+      # Expects an <tt>HTTPI::Request</tt> and a <tt>Savon::SOAP::XML</tt> object.
+      def initialize(http, soap)
+        self.soap = soap
+        self.http = configure(http)
+      end
+
+      attr_accessor :soap, :http
 
       # Executes the request and returns the response.
       def response
-        @response ||= with_logging { HTTPI.post request }
+        @response ||= SOAP::Response.new(
+          Savon.hooks.select(:soap_request).call(self) || with_logging { HTTPI.post(http) }
+        )
       end
 
     private
@@ -49,17 +57,17 @@ module Savon
 
       # Logs the HTTP request, yields to a given +block+ and returns a <tt>Savon::SOAP::Response</tt>.
       def with_logging
-        log_request request.url, request.headers, request.body
+        log_request http.url, http.headers, http.body
         response = yield
         log_response response.code, response.body
-        SOAP::Response.new response
+        response
       end
 
       # Logs the SOAP request +url+, +headers+ and +body+.
       def log_request(url, headers, body)
         Savon.log "SOAP request: #{url}"
         Savon.log headers.map { |key, value| "#{key}: #{value}" }.join(", ")
-        Savon.log body
+        Savon.log body, :filter
       end
 
       # Logs the SOAP response +code+ and +body+.

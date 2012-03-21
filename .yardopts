@@ -1,2 +1,5 @@
+--markup markdown
+--markup-provider redcarpet
 -
-CHANGELOG.rdoc
+CHANGELOG.md
+LICENSE

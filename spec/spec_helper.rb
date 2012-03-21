@@ -5,8 +5,6 @@ RSpec.configure do |config|
   config.mock_with :mocha
 end
 
-require "savon"
-
 # Disable logging for specs.
 Savon.log = false
 

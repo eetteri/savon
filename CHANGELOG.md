@@ -1,14 +1,178 @@
+## 0.9.9 (2012-02-17)
+
+* Improvement: [pull request 255](https://github.com/rubiii/savon/pull/255) - Raise an error if fetching
+  a remote WSDL fails. Possible fix for [issue 236](https://github.com/rubiii/savon/issues/236).
+
+* Improvement: The value for elementFormDefault (:unqualified, :qualified) can now be specified when creating
+  a `Savon::Client`. For example:
+
+    ``` ruby
+    Savon::Client.new do
+      wsdl.element_form_default = :unqualified
+    end
+    ```
+
+* Improvement: [pull request 263](https://github.com/rubiii/savon/pull/263) - The SOAP action can now be set
+  via a `:soap_action` key passed to the `#request` method.
+
+    ``` ruby
+    client.request(:get_user, :soap_action => :test_action)
+    ```
+
+* Fix: [pull request 265](https://github.com/rubiii/savon/pull/265) - Fixes gemspec problems when bundling
+  under JRuby 1.6.5. Also fixes [issue 267](https://github.com/rubiii/savon/issues/267).
+
+## 0.9.8 (2012-02-15)
+
+* Feature: Savon now ships with [Savon::Model](http://rubygems.org/gems/savon_model).
+  Savon::Model is a lightweight DSL to be used inside your domain models. It's been refactored
+  and is now [even more useful](http://savonrb.com/#how_to_date_a_model) than before.
+
+* Feature: Merged [pull request 230](https://github.com/rubiii/savon/pull/230) to allow filtering values
+  in logged SOAP request XML messages.
+
+    ``` ruby
+    Savon.configure do |config|
+      config.log_filter = ["password"]
+    end
+    ```
+
+* Feature: Added an option to change the default encoding of the XML directive tag (defaults to UTF-8)
+  to fix [issue 234](https://github.com/rubiii/savon/issues/234).
+
+    ``` ruby
+    client.request(:find_user) do
+      soap.encoding = "UTF-16"
+      soap.body = { :id => 1 }
+    end
+    ```
+
+* Improvement: Merged [pull request 231](https://github.com/rubiii/savon/pull/231) to gracefully handle
+  invalid response bodies by throwing a `Savon::SOAP::InvalidResponseError`.
+
+* Fix: [issue 237](https://github.com/rubiii/savon/issues/237) - Set the Content-Type and Content-Length
+  headers for every request.
+
+* Fix: [pull request 250](https://github.com/rubiii/savon/pull/250) - The Content-Length header should
+  be the size in bytes.
+
+## 0.9.7 (2011-08-25)
+
+* Feature: Merged [pull request 210](https://github.com/rubiii/savon/pull/210) by
+  [mboeh](https://github.com/mboeh) to add `Savon::SOAP::Response#doc` and
+  `Savon::SOAP::Response#xpath`.
+
+* Feature: Merged [pull request 211](https://github.com/rubiii/savon/pull/211) by
+  [mattkirman](https://github.com/mattkirman) to fix [issue 202](https://github.com/rubiii/savon/issues/202).
+
+* Feature: You can now pass a block to `Savon::SOAP::XML#body` and use Builder to create the XML:
+
+    ``` ruby
+    client.request(:find) do
+      soap.body do |xml|
+        xml.user do
+          xml.id 601173
+        end
+      end
+    end
+    ```
+
+* Fix: [issue 218](https://github.com/rubiii/savon/pull/218) - Savon now correctly handles namespaced
+  Array items in a Hash passed to `Savon::SOAP::XML#body=`.
+
+* Fix: Merged [pull request 212](https://github.com/rubiii/savon/pull/212) to fix
+  [savon_spec issue 2](https://github.com/rubiii/savon_spec/issues/2).
+
+* Improvement: [issue 222](https://github.com/rubiii/savon/issues/222) - Set the Content-Length header.
+
+## 0.9.6 (2011-07-07)
+
+* Improvement/Fix: Updated Savon to use the latest version of [Wasabi](http://rubygems.org/gems/wasabi).
+  This should fix [issue 155](https://github.com/rubiii/savon/issues/155) - Savon can automatically add namespaces
+  to SOAP requests based on the WSDL. Users shouldn't need to do anything differently or even notice whether their WSDL
+  hits this case; the intention is that this will "Just Work" and follow the WSDL. The SOAP details are that if
+  elementFormDefault is specified as qualified, Savon will automatically prepend the correct XML namespaces to the
+  elements in a SOAP request. Thanks to [jkingdon](https://github.com/jkingdon) for this.
+
+* Fix: [issue 143](https://github.com/rubiii/savon/issues/143) - Updating Wasabi should solve this issue.
+
+## 0.9.5 (2011-07-03)
+
+* Refactoring: Extracted WSSE authentication out into the [akami](http://rubygems.org/gems/akami) gem.
+
+## 0.9.4 (2011-07-03)
+
+* Refactoring: Extracted the WSDL parser out into the [wasabi](http://rubygems.org/gems/wasabi) gem.
+  This should isolate upcoming improvements to the parser.
+
+## 0.9.3 (2011-06-30)
+
+* Fix: [issue 138](https://github.com/rubiii/savon/issues/138) -
+  Savon now supports setting a global SOAP header via `Savon.soap_header=`.
+
+* Fixed the namespace for wsse message timestamps from `wsse:Timestamp`
+  to `wsu:Timestamp` as required by the specification.
+
+* Change: Removed support for NTLM authentication until it's stable. If you need it, you can still
+  add the following line to your Gemfile:
+
+    ``` ruby
+    gem "httpi", "0.9.4"
+    ```
+
+* Refactoring:
+
+  * `Hash#map_soap_response` and some of its helpers are moved to [Nori v1.0.0](http://rubygems.org/gems/nori/versions/1.0.0).
+    Along with replacing core extensions with a proper implementation, Nori now contains a number of methods
+    for [configuring its default behavior](https://github.com/rubiii/nori/blob/master/CHANGELOG.md):
+
+      * The option whether to strip namespaces was moved to Nori.strip_namespaces
+      * You can disable "advanced typecasting" for SOAP response values
+      * And you can configure how SOAP response keys should be converted
+
+  * `Savon::SOAP::XML.to_hash`, `Savon::SOAP::XML.parse` and `Savon::SOAP::XML.to_array` are gone.
+    It wasn't worth keeping them around, because they didn't do much. You can simply parse a SOAP
+    response and translate it to a Savon SOAP response Hash via:
+
+        ``` ruby
+        Nori.parse(xml)[:envelope][:body]
+        ```
+
+  * `Savon::SOAP::Response#basic_hash` is now `Savon::SOAP::Response#hash`.
+
+## 0.9.2 (2011-04-30)
+
+* Fix: [issue 154](https://github.com/rubiii/savon/pull/154) -
+  Timezone format used by Savon now matches the XML schema spec.
+
+* Improvement: WSSE basic, digest and timestamp authentication are no longer mutually exclusive.
+  Thanks to [mleon](https://github.com/mleon) for solving [issue #142](https://github.com/rubiii/savon/issues/142).
+
+* Improvement: Switched from using Crack to translate the SOAP response to a Hash to using
+  [Nori](http://rubygems.org/gems/nori). It's based on Crack and comes with pluggable parsers.
+  It defaults to REXML, but you can switch to Nokogiri via:
+
+    ``` ruby
+    Nori.parser = :nokogiri
+    ```
+
+* Improvement: WSDL parsing now uses Nokogiri instead of REXML.
+
 ## 0.9.1 (2011-04-06)
 
 * Improvement: if you're only setting the local or remote address of your wsdl document, you can
   now pass an (optional) String to `Savon::Client.new` to set `wsdl.document`.
 
-      Savon::Client.new "http://example.com/UserService?wsdl"
+    ``` ruby
+    Savon::Client.new "http://example.com/UserService?wsdl"
+    ```
 
 * Improvement: instead of calling the `to_hash` method of your response again and again and again,
   there is now a ' #[]` shortcut for you.
 
-      response[:authenticate_response][:return]
+    ``` ruby
+    response[:authenticate_response][:return]
+    ```
 
 ## 0.9.0 (2011-04-05)
 
@@ -17,26 +181,32 @@
   configurable "Hash key Symbol to lowerCamelCase" conversion by using the latest version of
   [Gyoku](http://rubygems.org/gems/gyoku).
 
-      Gyoku.convert_symbols_to(:camelcase)
-      Gyoku.xml(:first_name => "Mac")  # => "<FirstName></Firstname>"
+    ``` ruby
+    Gyoku.convert_symbols_to(:camelcase)
+    Gyoku.xml(:first_name => "Mac")  # => "<FirstName></Firstname>"
+    ```
 
   You can even define your own conversion formular.
 
-      Gyoku.convert_symbols_to { |key| key.upcase }
-      Gyoku.xml(:first_name => "Mac")  # => "<FIRST_NAME></FIRST_NAME>"
+    ``` ruby
+    Gyoku.convert_symbols_to { |key| key.upcase }
+    Gyoku.xml(:first_name => "Mac")  # => "<FIRST_NAME></FIRST_NAME>"
+    ```
 
   This should also work for the SOAP input tag and SOAPAction header. So if you had to use a String for
   the SOAP action to call because your services uses CamelCase instead of lowerCamelCase, you can now
   change the default and use Symbols instead.
 
-      Gyoku.convert_symbols_to(:camelcase)
+    ``` ruby
+    Gyoku.convert_symbols_to(:camelcase)
 
-      # pre Gyoku 0.4.0
-      client.request(:get_user)  # => "<getUser/>"
-      client.request("GetUser")  # => "<GetUser/>"
+    # pre Gyoku 0.4.0
+    client.request(:get_user)  # => "<getUser/>
+    client.request("GetUser")  # => "<GetUser/>"
 
-      # post Gyoku 0.4.0
-      client.request(:get_user)  # => "<GetUser/>"
+    # post Gyoku 0.4.0
+    client.request(:get_user)  # => "<GetUser/>"
+    ```
 
 * Improvement: issues [#170](https://github.com/rubiii/savon/issues/170) and
   [#173](https://github.com/rubiii/savon/issues/173) Savon no longer rescues exceptions raised by
@@ -45,9 +215,11 @@
 
 * Improvement: issue [#172](https://github.com/rubiii/savon/issues/172) support for global env_namespace.
 
-      Savon.configure do |config|
-        config.env_namespace = :soapenv  # changes the default :env namespace
-      end
+    ``` ruby
+    Savon.configure do |config|
+      config.env_namespace = :soapenv  # changes the default :env namespace
+    end
+    ```
 
 * Fix: [issue #163](https://github.com/rubiii/savon/issues/163) "Savon 0.8.6 not playing nicely
   with Httpi 0.9.0". Updating HTTPI to v0.9.1 should solve this problem.

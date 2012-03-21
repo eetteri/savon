@@ -1,16 +1,16 @@
 require "httpi/request"
+require "akami"
+
+require "savon/wasabi/document"
 require "savon/soap/xml"
 require "savon/soap/request"
 require "savon/soap/response"
-require "savon/wsdl/document"
-require "savon/wsse"
 
 module Savon
 
   # = Savon::Client
   #
-  # Savon::Client is the main object for connecting to a SOAP service. It includes methods to access
-  # both the Savon::WSDL::Document and HTTPI::Request object.
+  # Savon::Client is the main object for connecting to a SOAP service.
   class Client
 
     # Initializes the Savon::Client for a SOAP service. Accepts a +block+ which is evaluated in the
@@ -19,13 +19,10 @@ module Savon
     # == Examples
     #
     #   # Using a remote WSDL
-    #   client = Savon::Client.new { wsdl.document = "http://example.com/UserService?wsdl" }
+    #   client = Savon::Client.new("http://example.com/UserService?wsdl")
     #
     #   # Using a local WSDL
-    #   client = Savon::Client.new { wsdl.document = "../wsdl/user_service.xml" }
-    #
-    #   # Shortcut for setting the WSDL
-    #   client = Savon::Client.new "http://example.com/UserService?wsdl"
+    #   client = Savon::Client.new File.expand_path("../wsdl/service.xml", __FILE__)
     #
     #   # Directly accessing a SOAP endpoint
     #   client = Savon::Client.new do
@@ -38,9 +35,9 @@ module Savon
       wsdl.request = http
     end
 
-    # Returns the <tt>Savon::WSDL::Document</tt>.
+    # Returns the <tt>Savon::Wasabi::Document</tt>.
     def wsdl
-      @wsdl ||= WSDL::Document.new
+      @wsdl ||= Wasabi::Document.new
     end
 
     # Returns the <tt>HTTPI::Request</tt>.
@@ -48,9 +45,9 @@ module Savon
       @http ||= HTTPI::Request.new
     end
 
-    # Returns the <tt>Savon::WSSE</tt> object.
+    # Returns the <tt>Akami::WSSE</tt> object.
     def wsse
-      @wsse ||= WSSE.new
+      @wsse ||= Akami.wsse
     end
 
     # Returns the <tt>Savon::SOAP::XML</tt> object. Please notice, that this object is only available
@@ -107,30 +104,41 @@ module Savon
       [namespace, input, attributes]
     end
 
-    # Expects and Array of +options+ and preconfigures the system.
-    def preconfigure(options)
+    # Expects an Array of +args+ to preconfigure the system.
+    def preconfigure(args)
       soap.endpoint = wsdl.endpoint
-      soap.namespace_identifier = options[0]
+      soap.namespace_identifier = args[0]
       soap.namespace = wsdl.namespace
-      soap.element_form_default = wsdl.element_form_default if wsdl.present?
-      soap.body = options[2].delete(:body) if options[2][:body]
+      soap.element_form_default = wsdl.element_form_default
 
-      set_soap_action options[1]
-      set_soap_input *options
+      body = args[2].delete(:body)
+      soap.body = body if body
+
+      wsdl.type_namespaces.each do |path, uri|
+        soap.use_namespace(path, uri)
+      end
+
+      wsdl.type_definitions.each do |path, type|
+        soap.types[path] = type
+      end
+
+      soap_action = args[2].delete(:soap_action) || args[1]
+      set_soap_action soap_action
+      set_soap_input *args
     end
 
     # Expects an +input+ and sets the +SOAPAction+ HTTP headers.
-    def set_soap_action(input)
-      soap_action = wsdl.soap_action input.to_sym
-      soap_action ||= Gyoku::XMLKey.create(input).to_sym
+    def set_soap_action(input_tag)
+      soap_action = wsdl.soap_action(input_tag.to_sym) if wsdl.document?
+      soap_action ||= Gyoku::XMLKey.create(input_tag).to_sym
       http.headers["SOAPAction"] = %{"#{soap_action}"}
     end
 
     # Expects a +namespace+, +input+ and +attributes+ and sets the SOAP input.
     def set_soap_input(namespace, input, attributes)
-      new_input = wsdl.soap_input input.to_sym
-      new_input ||= Gyoku::XMLKey.create(input).to_sym
-      soap.input = [namespace, new_input, attributes].compact
+      new_input_tag = wsdl.soap_input(input.to_sym) if wsdl.document?
+      new_input_tag ||= Gyoku::XMLKey.create(input)
+      soap.input = [namespace, new_input_tag.to_sym, attributes]
     end
 
     # Processes a given +block+. Yields objects if the block expects any arguments.
