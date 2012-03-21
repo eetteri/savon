@@ -3,6 +3,7 @@ require "akami"
 
 require "savon/wasabi/document"
 require "savon/soap/xml"
+require "savon/soap/part"
 require "savon/soap/request"
 require "savon/soap/response"
 

@@ -36,23 +36,24 @@ module Savon
     private
 
       # Sets up the +request+ using a given +soap+ object.
-      def setup(request, soap)
-        request.url = soap.endpoint
+      def configure(http)
+        http.url = soap.endpoint
         if soap.has_parts? # do multipart stuff if soap has parts
           request_message = soap.request_message
           # takes relevant http headers from the "Mail" message and makes them Net::HTTP compatible
-          request.headers["Content-Type"] ||= ContentType[soap.version]
+          http.headers["Content-Type"] ||= ContentType[soap.version]
           request_message.header.fields.each do |field|
-            request.headers[field.name] = field.to_s
+            http.headers[field.name] = field.to_s
           end
           #request.headers["Content-Type"] << %|; start="<savon_soap_xml_part>"|
           request_message.body.set_sort_order soap.parts_sort_order if soap.parts_sort_order && soap.parts_sort_order.any?
-          request.body = request_message.body.encoded
+          http.body = request_message.body.encoded
         else
-          request.headers["Content-Type"] ||= ContentType[soap.version]
-          request.body = soap.to_xml
+          http.headers["Content-Type"] ||= ContentType[soap.version]
+          http.headers["Content-Length"] = soap.to_xml.bytesize.to_s
+          http.body = soap.to_xml
         end
-        request
+        http
       end
 
       # Logs the HTTP request, yields to a given +block+ and returns a <tt>Savon::SOAP::Response</tt>.
